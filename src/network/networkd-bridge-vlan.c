@@ -187,6 +187,74 @@ static int bridge_vlan_append_set_info(Link *link, sd_netlink_message *m) {
         return 0;
 }
 
+static int add_tunnel_info(sd_netlink_message *m, uint16_t vid, uint32_t tun_id, uint16_t flags) {
+        int r;
+
+        r = sd_netlink_message_open_container(m, IFLA_BRIDGE_VLAN_TUNNEL_INFO);
+        if (r < 0)
+                return r;
+
+        r = sd_netlink_message_append_u32(m, IFLA_BRIDGE_VLAN_TUNNEL_ID, tun_id);
+        if (r < 0)
+                return r;
+
+        r = sd_netlink_message_append_u16(m, IFLA_BRIDGE_VLAN_TUNNEL_VID, vid);
+        if (r < 0)
+                return r;
+
+        r = sd_netlink_message_append_u16(m, IFLA_BRIDGE_VLAN_TUNNEL_FLAGS, flags);
+        if (r < 0)
+                return r;
+
+        r = sd_netlink_message_close_container(m);
+        if (r < 0)
+                return r;
+
+        return 0;
+}
+
+static int bridge_vlan_append_tunnel_info(Link *link, sd_netlink_message *m) {
+        _cleanup_free_ char *str = NULL;
+        int r;
+
+        assert(link);
+        assert(link->network);
+        assert(m);
+
+        /* Check if we have TunnelVNI entries */
+        if (!link->network->bridge_vlan_tunnel_vni.entries || link->network->bridge_vlan_tunnel_vni.n_entries == 0)
+                return 0;
+
+        /* Iterate each tunnel entry and send it */
+        for (size_t i = 0; i < link->network->bridge_vlan_tunnel_vni.n_entries; i++) {
+                BridgeVLANTunnelEntry *entry = &link->network->bridge_vlan_tunnel_vni.entries[i];
+
+                if (DEBUG_LOGGING)
+                        (void) strextendf_with_separator(&str, ",", "%u-%u->%u-%u",
+                                                        entry->vid_start, entry->vid_end,
+                                                        entry->vni_start, entry->vni_end);
+
+                if (entry->vid_start == entry->vid_end) {
+                        /* Single VLAN */
+                        r = add_tunnel_info(m, entry->vid_start, entry->vni_start, 0);
+                } else {
+                        /* VLAN range */
+                        r = add_tunnel_info(m, entry->vid_start, entry->vni_start, BRIDGE_VLAN_INFO_RANGE_BEGIN);
+                        if (r < 0)
+                                return r;
+
+                        r = add_tunnel_info(m, entry->vid_end, entry->vni_end, BRIDGE_VLAN_INFO_RANGE_END);
+                }
+                if (r < 0)
+                        return r;
+        }
+
+        if (str)
+                log_link_debug(link, "Setting Bridge VLAN Tunnel VNI: %s", str);
+
+        return 0;
+}
+
 static int bridge_vlan_append_del_info(Link *link, sd_netlink_message *m) {
         _cleanup_free_ char *str = NULL;
         uint16_t pvid, begin = UINT16_MAX;
@@ -259,6 +327,12 @@ int bridge_vlan_set_message(Link *link, sd_netlink_message *m, bool is_set) {
                 r = bridge_vlan_append_del_info(link, m);
         if (r < 0)
                 return r;
+
+        if (is_set) {
+                r = bridge_vlan_append_tunnel_info(link, m);
+                if (r < 0)
+                        return r;
+        }
 
         r = sd_netlink_message_close_container(m);
         if (r < 0)
@@ -392,6 +466,7 @@ int config_parse_bridge_vlan_id_range(
                 void *userdata) {
 
         uint32_t *bitmap = ASSERT_PTR(data);
+        Network *network = ASSERT_PTR(userdata);
         uint16_t vid, vid_end;
         int r;
 
@@ -402,6 +477,8 @@ int config_parse_bridge_vlan_id_range(
 
         if (isempty(rvalue)) {
                 memzero(bitmap, BRIDGE_VLAN_BITMAP_LEN * sizeof(uint32_t));
+                network->bridge_vlan_section_start = 0;
+                network->bridge_vlan_section_end = 0;
                 return 0;
         }
 
@@ -413,8 +490,102 @@ int config_parse_bridge_vlan_id_range(
                 return 0;
         }
 
+        /* Save section's VLAN range for TunnelVNI parser */
+        network->bridge_vlan_section_start = vid;
+        network->bridge_vlan_section_end = vid_end;
+
         for (; vid <= vid_end; vid++)
                 set_bit(vid, bitmap);
+
+        return 0;
+}
+
+int config_parse_bridge_vlan_tunnel_vni(
+                const char *unit,
+                const char *filename,
+                unsigned line,
+                const char *section,
+                unsigned section_line,
+                const char *lvalue,
+                int ltype,
+                const char *rvalue,
+                void *data,
+                void *userdata) {
+
+        BridgeVLANTunnelVNI *tunnel_vni = ASSERT_PTR(data);
+        Network *network = ASSERT_PTR(userdata);
+        uint32_t vni, vni_end;
+        char *dash;
+        int r;
+
+        assert(filename);
+        assert(section);
+        assert(lvalue);
+        assert(rvalue);
+
+        if (isempty(rvalue)) {
+                tunnel_vni->entries = mfree(tunnel_vni->entries);
+                tunnel_vni->n_entries = 0;
+                return 0;
+        }
+
+        /* Parse VNI range (single value or range) */
+        dash = strchr(rvalue, '-');
+        if (dash && dash > rvalue && *(dash + 1) != '\0') {
+                r = safe_atou32(rvalue, &vni);
+                if (r < 0) {
+                        log_syntax(unit, LOG_WARNING, filename, line, r,
+                                   "Failed to parse VNI start in %s=, ignoring: %s",
+                                   lvalue, rvalue);
+                        return 0;
+                }
+
+                r = safe_atou32(dash + 1, &vni_end);
+                if (r < 0) {
+                        log_syntax(unit, LOG_WARNING, filename, line, r,
+                                   "Failed to parse VNI end in %s=, ignoring: %s",
+                                   lvalue, rvalue);
+                        return 0;
+                }
+        } else {
+                r = safe_atou32(rvalue, &vni);
+                if (r < 0) {
+                        log_syntax(unit, LOG_WARNING, filename, line, r,
+                                   "Failed to parse VNI in %s=, ignoring: %s",
+                                   lvalue, rvalue);
+                        return 0;
+                }
+                vni_end = vni;
+        }
+
+        if (vni == 0 || vni_end == 0 || vni > VXLAN_VID_MAX || vni_end > VXLAN_VID_MAX) {
+                log_syntax(unit, LOG_WARNING, filename, line, 0,
+                           "VNI out of range (1-%u) in %s=, ignoring: %s",
+                           VXLAN_VID_MAX, lvalue, rvalue);
+                return 0;
+        }
+
+        if (vni > vni_end) {
+                log_syntax(unit, LOG_WARNING, filename, line, 0,
+                           "VNI range start (%u) is greater than end (%u) in %s=, ignoring: %s",
+                           vni, vni_end, lvalue, rvalue);
+                return 0;
+        }
+
+        /* Simply store the VNI range with matching VLAN range */
+        BridgeVLANTunnelEntry *new_entries = reallocarray(tunnel_vni->entries,
+                                                         tunnel_vni->n_entries + 1,
+                                                         sizeof(BridgeVLANTunnelEntry));
+        if (!new_entries)
+                return log_oom();
+
+        new_entries[tunnel_vni->n_entries].vid_start = network->bridge_vlan_section_start;
+        new_entries[tunnel_vni->n_entries].vid_end = network->bridge_vlan_section_end;
+        new_entries[tunnel_vni->n_entries].vni_start = vni;
+        new_entries[tunnel_vni->n_entries].vni_end = vni_end;
+
+        tunnel_vni->entries = new_entries;
+        tunnel_vni->n_entries++;
 
         return 0;
 }
