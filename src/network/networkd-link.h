@@ -64,6 +64,7 @@ typedef struct Link {
         uint16_t bridge_vlan_pvid;
         bool bridge_vlan_pvid_is_untagged;
         uint32_t bridge_vlan_bitmap[BRIDGE_VLAN_BITMAP_LEN];
+        BridgeVLANTunnelVNI bridge_vlan_tunnel_existing;
 
         /* to prevent multiple ethtool calls */
         bool ethtool_driver_read;

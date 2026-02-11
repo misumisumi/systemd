@@ -398,6 +398,8 @@ static const char *const request_type_table[_REQUEST_TYPE_MAX] = {
         [REQUEST_TYPE_TC_QDISC]                         = "QDisc",
         [REQUEST_TYPE_TC_CLASS]                         = "TClass",
         [REQUEST_TYPE_UP_DOWN]                          = "bring link up or down",
+        [REQUEST_TYPE_DEL_LINK_BRIDGE_VLAN_TUNNEL]      = "bridge VLAN tunnel configurations (step 1)",
+        [REQUEST_TYPE_SET_LINK_BRIDGE_VLAN_TUNNEL]      = "bridge VLAN tunnel configurations (step 2)",
 };
 
 DEFINE_STRING_TABLE_LOOKUP_TO_STRING(request_type, RequestType);

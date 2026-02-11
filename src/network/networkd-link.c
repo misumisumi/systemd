@@ -295,6 +295,8 @@ static Link* link_free(Link *link) {
 
         set_free(link->slaves);
 
+        link->bridge_vlan_tunnel_existing.entries = mfree(link->bridge_vlan_tunnel_existing.entries);
+
         network_unref(link->network);
 
         sd_event_source_disable_unref(link->carrier_lost_timer);
@@ -2699,6 +2701,10 @@ static int link_update(Link *link, sd_netlink_message *message) {
                 return r;
 
         r = link_update_bridge_vlan(link, message);
+        if (r < 0)
+                return r;
+
+        r = link_update_bridge_vlan_tunnel_info(link, message);
         if (r < 0)
                 return r;
 

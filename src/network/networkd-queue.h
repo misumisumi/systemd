@@ -29,7 +29,9 @@ typedef enum RequestType {
         REQUEST_TYPE_SET_LINK_BOND,                    /* Setting bond configs. */
         REQUEST_TYPE_SET_LINK_BRIDGE,                  /* Setting bridge configs. */
         REQUEST_TYPE_SET_LINK_BRIDGE_VLAN,             /* Setting bridge VLAN configs. */
+        REQUEST_TYPE_SET_LINK_BRIDGE_VLAN_TUNNEL,      /* Setting bridge VLAN tunnel configs. */
         REQUEST_TYPE_DEL_LINK_BRIDGE_VLAN,             /* Removing bridge VLAN configs. */
+        REQUEST_TYPE_DEL_LINK_BRIDGE_VLAN_TUNNEL,      /* Removing bridge VLAN tunnel configs. */
         REQUEST_TYPE_SET_LINK_CAN,                     /* Setting CAN interface configs. */
         REQUEST_TYPE_SET_LINK_FLAGS,                   /* Setting IFF_NOARP or friends. */
         REQUEST_TYPE_SET_LINK_GROUP,                   /* Setting interface group. */
