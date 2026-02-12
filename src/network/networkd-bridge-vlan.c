@@ -265,6 +265,9 @@ static int bridge_vlan_append_set_tunnel_info(Link *link, sd_netlink_message *m)
         assert(link->network);
         assert(m);
 
+        if (!IN_SET(link->state, LINK_STATE_CONFIGURING, LINK_STATE_CONFIGURED, LINK_STATE_UNMANAGED))
+                return -1;
+
         /* Process configured entries that are not yet applied */
         for (size_t i = 0; i < link->network->bridge_vlan_tunnel_vni.n_entries; i++) {
                 BridgeVLANTunnelEntry *entry = &link->network->bridge_vlan_tunnel_vni.entries[i];
@@ -318,6 +321,9 @@ static int bridge_vlan_append_del_tunnel_info(Link *link, sd_netlink_message *m)
         assert(link);
         assert(link->network);
         assert(m);
+
+        if (!IN_SET(link->state, LINK_STATE_CONFIGURING, LINK_STATE_CONFIGURED, LINK_STATE_UNMANAGED))
+                return -1;
 
         /* Delete entries that exist in kernel but not in configuration */
         for (size_t i = 0; i < link->bridge_vlan_tunnel_existing.n_entries; i++) {

@@ -12,6 +12,7 @@
 #include "netlink-util.h"
 #include "networkd-address.h"
 #include "networkd-bridge-vlan.h"
+#include "networkd-bridge-vni.h"
 #include "networkd-can.h"
 #include "networkd-ipv4acd.h"
 #include "networkd-ipv4ll.h"
@@ -133,6 +134,7 @@ static int link_set_bridge_tunnel_info_handler(
 
         assert(link);
         assert(link->network);
+        link_check_ready(link);
 
         r = set_link_handler_internal(rtnl, m, req, link, /* ignore = */ false, NULL);
         if (r <= 0)
@@ -146,7 +148,47 @@ static int link_set_bridge_tunnel_info_handler(
 
 static int link_del_bridge_tunnel_info_handler(
                 sd_netlink *rtnl, sd_netlink_message *m, Request *req, Link *link, void *userdata) {
-        return set_link_handler_internal(rtnl, m, req, link, /* ignore = */ false, NULL);
+
+        int r;
+
+        assert(link);
+        assert(link->network);
+        r = set_link_handler_internal(rtnl, m, req, link, /* ignore = */ false, NULL);
+
+        if (r <= 0)
+                return r;
+
+        return 0;
+}
+
+static int link_set_bridge_vni_entry_handler(
+                sd_netlink *rtnl, sd_netlink_message *m, Request *req, Link *link, void *userdata) {
+
+        int r;
+
+        assert(link);
+        assert(link->network);
+        r = set_link_handler_internal(rtnl, m, req, link, /* ignore = */ false, NULL);
+
+        if (r <= 0)
+                return r;
+
+        return 0;
+}
+
+static int link_del_bridge_vni_entry_handler(
+                sd_netlink *rtnl, sd_netlink_message *m, Request *req, Link *link, void *userdata) {
+
+        int r;
+
+        assert(link);
+        assert(link->network);
+        r = set_link_handler_internal(rtnl, m, req, link, /* ignore = */ false, NULL);
+
+        if (r <= 0)
+                return r;
+
+        return 0;
 }
 
 static int link_set_can_handler(sd_netlink *rtnl, sd_netlink_message *m, Request *req, Link *link, void *userdata) {
@@ -406,13 +448,22 @@ static int link_configure_fill_message(
                         return r;
                 break;
         case REQUEST_TYPE_SET_LINK_BRIDGE_VLAN_TUNNEL:
-                link_check_ready(link);
                 r = bridge_vlan_set_tunnel_message(link, req, /* is_set = */ true);
                 if (r < 0)
                         return r;
                 break;
         case REQUEST_TYPE_DEL_LINK_BRIDGE_VLAN_TUNNEL:
                 r = bridge_vlan_set_tunnel_message(link, req, /* is_set = */ false);
+                if (r < 0)
+                        return r;
+                break;
+        case REQUEST_TYPE_SET_LINK_BRIDGE_VNI:
+                r = bridge_vni_set_vnientry_message(link, req, /* is_set = */ true);
+                if (r < 0)
+                        return r;
+                break;
+        case REQUEST_TYPE_DEL_LINK_BRIDGE_VNI:
+                r = bridge_vni_set_vnientry_message(link, req, /* is_set = */ false);
                 if (r < 0)
                         return r;
                 break;
@@ -901,6 +952,22 @@ int link_request_to_set_bridge_vlan(Link *link) {
                         link,
                         REQUEST_TYPE_DEL_LINK_BRIDGE_VLAN_TUNNEL,
                         link_del_bridge_tunnel_info_handler,
+                        NULL);
+        if (r < 0)
+                return r;
+
+        r = link_request_set_link(
+                        link,
+                        REQUEST_TYPE_SET_LINK_BRIDGE_VNI,
+                        link_set_bridge_vni_entry_handler,
+                        NULL);
+        if (r < 0)
+                return r;
+
+        r = link_request_set_link(
+                        link,
+                        REQUEST_TYPE_DEL_LINK_BRIDGE_VNI,
+                        link_del_bridge_vni_entry_handler,
                         NULL);
         if (r < 0)
                 return r;
